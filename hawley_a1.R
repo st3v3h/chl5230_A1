@@ -22,61 +22,77 @@ bc_data$ln_status <- factor(ifelse(bc_data$ln_status %in% 0, "0",
                                    ifelse(bc_data$ln_status %in% 1:3, "1-3", "4 or more")),
                                    levels=c("0","1-3","4 or more"))
 
-#subset the data for only those with recurrence. Also dropping the standard error and worst measurement columns
-bc_data.rec <- bc_data %>% filter(outcome=="R") %>% select(-matches("_se|_w"))
+#subset the data for only those with recurrence. Also dropping the standard error and worst measurement columns; will only use means for model
+#bc_data.rec <- bc_data %>% filter(outcome=="R") %>% select(,-matches("_se|_w"))
+bc_data.rec <- bc_data %>% select(-matches("_se|_w|ID|outcome"))
 
 #summarize new data set
 summary(bc_data.rec)
 
-#loop through the predictor columns and create boxplots for each mean
-invisible(lapply(colnames(bc_data.rec[3:14]),function(x){
+#loop through the predictor columns and create boxplots for each mean (exclude the factor column)
+invisible(lapply(colnames(bc_data.rec[1:12]),function(x){
   boxplot(bc_data.rec[,x],main=x,type="l")
 }))
 
 plot(bc_data.rec$ln_status, xlab="Lymph node status")
 
 #define predictors
-predictors <- colnames(bc_data.rec[4:15])
+#predictors <- colnames(bc_data.rec[4:15])
 
 library(glmnet)
 
-x <- model.matrix(time ~.,bc_data.rec)[,-1] #need to recode factors to dummy variables "~." = take everything after weight
-# we excluded the first column as it corresponds to the intercept and it is always 1
+#create model matrix of predictors (everything except time response)
+x <- model.matrix(time ~.,bc_data.rec)[,-1] #remove intercept, ID, and outcome
 
+# response variable 
 y <- bc_data.rec$time
 
+##RIDGE REGRESSION##
+# Train the ridge regression model using x and y; alpha= 0 for RR
+rr.mod <- glmnet(x,y,family="gaussian",alpha=0)
 
-#########PICK UP HERE############
-
-rr.mod <- glmnet(x,y,family="gaussian",alpha=0) # gaussian for linear regression, alpha = 0 == ridge, alpha = 1 == lasso
-
+# plot the L2 Norm against the coefficients 
 plot(rr.mod)
-# notice the x-axis in this plot
 
-plot(rr.mod,xvar = "lambda")
-# this might be more intuitive
+# perform cross-validation to determine optimal value of lambda 
+cv.rr <- cv.glmnet(x,y,alpha=0, nfolds = 5)
 
-# for different values of lambda we are getting differnet coefficient estimates.
-# we need to decide on an optimal value for lambda
+# plot shows minimum lambda and acceptable range
+plot(cv.rr) 
 
-# We will do it by performing cross-validation
-
-cv.rr <- cv.glmnet(x,y,alpha=0)
-plot(cv.rr) #plot shows minimum lambda and acceptable range
+# minimum lamdba value
 cv.rr$lambda.min
 
+# report the coefficients using the optimum lambda value
 coef.min <- coef(cv.rr, s = "lambda.min")
-coef.min #gives you the coefficients using the minimum value of lambda
-# We really do not care about these values though...
+coef.min 
 
-# making some predictions using the optimal lambda, and for lambda value = 1*se from optimal lambda
-
-predict(rr.mod, newx=x[1:10,],s= c(cv.rr$lambda.min, cv.rr$lambda.1se)) # newx ~= newdata from before. s= lambda
-# or we can use the output from cv.glmnet function
-predict(cv.rr, newx=x[1:10,],s= c(cv.rr$lambda.min, cv.rr$lambda.1se))
-
-# calculating the MSE of the whole data set using these two choices for lambda
-
+# calculating the MSE of the whole data set using the optimal lambda value
 mean((y-predict(rr.mod, newx=x, s= cv.rr$lambda.min))^2)
-mean((y-predict(rr.mod, newx=x, s= cv.rr$lambda.1se))^2)
-# higher as expected
+
+
+##LASSO##
+# Train the LASSO model using x and y; alpha = 1 for lasso
+l.mod <- glmnet(x,y,family="gaussian",alpha=1)
+
+# plot the L2 Norm against the coefficients 
+plot(l.mod)
+
+# perform cross-validation to determine optimal value of lambda 
+cv.l <- cv.glmnet(x,y,alpha=1, nfolds = 5)
+
+# plot shows minimum lambda and acceptable range
+plot(cv.l) 
+
+# minimum lamdba value
+cv.l$lambda.min
+
+# report the coefficients using the optimum lambda value
+coef.min.l <- coef(cv.l, s = "lambda.min")
+coef.min.l 
+
+# Using the optimal lambda value, the selected features are: perimeter, smoothness, and symmetry
+rownames(coef.min.l)[coef.min.l[,1]!=0][-1]
+
+# calculating the MSE of the whole data set using the optimal lambda value
+mean((y-predict(l.mod, newx=x, s= cv.l$lambda.min))^2)
