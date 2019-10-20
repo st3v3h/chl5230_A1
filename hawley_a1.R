@@ -3,6 +3,7 @@
 # Assignment 1
 # Author: Steve Hawley
 
+#importing tidyverse for data wrangling
 library(tidyverse)
 
 #import the data
@@ -17,16 +18,16 @@ colnames(bc_data) <- c("ID","outcome","time","radius_m","texture_m","perimeter_m
 #clean missing data
 bc_data[bc_data == "?"] <- NA
 
-#clean up ln_status
+#clean up ln_status into 3 factors
 bc_data$ln_status <- factor(ifelse(bc_data$ln_status %in% 0, "0",
                                    ifelse(bc_data$ln_status %in% 1:3, "1-3", "4 or more")),
                                    levels=c("0","1-3","4 or more"))
 
-#subset the data for only those with recurrence. Also dropping the standard error and worst measurement columns; will only use means for model
-#bc_data.rec <- bc_data %>% filter(outcome=="R") %>% select(,-matches("_se|_w"))
-bc_data.rec <- bc_data %>% select(-matches("_se|_w|ID|outcome"))
+#subset the data for only those with recurrence. Also dropping the 'standard error' and 'worst' measurement columns; will only use means for model
+bc_data.rec <- bc_data %>% filter(outcome=="R") %>% select(-matches("_se|_w|ID|outcome"))
 
 #summarize new data set
+str(bc_data.rec)
 summary(bc_data.rec)
 
 #loop through the predictor columns and create boxplots for each mean (exclude the factor column)
@@ -34,15 +35,13 @@ invisible(lapply(colnames(bc_data.rec[1:12]),function(x){
   boxplot(bc_data.rec[,x],main=x,type="l")
 }))
 
-plot(bc_data.rec$ln_status, xlab="Lymph node status")
+plot(bc_data.rec$ln_status, xlab="Lymph node status", ylim=c(0,25))
 
-#define predictors
-#predictors <- colnames(bc_data.rec[4:15])
 
 library(glmnet)
 
 #create model matrix of predictors (everything except time response)
-x <- model.matrix(time ~.,bc_data.rec)[,-1] #remove intercept, ID, and outcome
+x <- model.matrix(time ~.,bc_data.rec)[,-1] #remove intercept
 
 # response variable 
 y <- bc_data.rec$time
@@ -52,9 +51,9 @@ y <- bc_data.rec$time
 rr.mod <- glmnet(x,y,family="gaussian",alpha=0)
 
 # plot the L2 Norm against the coefficients 
-plot(rr.mod)
+plot(rr.mod, xlab="L2 Norm")
 
-# perform cross-validation to determine optimal value of lambda 
+# perform 5-fold cross-validation to determine optimal value of lambda 
 cv.rr <- cv.glmnet(x,y,alpha=0, nfolds = 5)
 
 # plot shows minimum lambda and acceptable range
